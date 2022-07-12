@@ -111,7 +111,6 @@ func (l *Logger) Log(lvl level, msg string, context string) error {
 	}
 
 	if !isJSON(context) {
-		reportInvalidContext(context)
 		context = "{}"
 	}
 
@@ -235,16 +234,4 @@ func FromContext(ctx context.Context) (*Logger, error) {
 	}
 
 	return logger, nil
-}
-
-func ReportLoggerNotFound() {
-	fmt.Fprintln(os.Stdout, "{\"error\":\"structured logger not found.\"}")
-}
-
-func reportInvalidContext(invalidContext string) {
-	fmt.Fprintf(
-		os.Stdout,
-		"{\"error\":\"invalid JSON context.\",\"context\":\"%s\"}\n",
-		invalidContext,
-	)
 }
