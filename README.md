@@ -27,3 +27,9 @@ import logger "github.com/Humi-HR/go-structured-logger"
 ## Usage
 
 ### Basic
+
+The most basic form of using this logger is as follows:
+
+```go
+
+```
