@@ -251,18 +251,3 @@ func FromContext(ctx context.Context) (*Logger, error) {
 
 	return logger, nil
 }
-
-func temp() {
-	// create a config
-	cfg := Config{
-		Writer:  os.Stdout,           // io.Writer
-		Env:     "production",        // should probably be sourced from the environment
-		Service: "some-humi-service", // name of your service
-	}
-
-	logger := NewLogger(cfg) // create your logger instance
-	defer logger.Flush()     // defer flushing
-
-	logger.Info("We are logging!")
-	logger.Info("We are logging with context!").WithContext(`{"message": "Yay!"`)
-}
