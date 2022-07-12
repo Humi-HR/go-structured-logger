@@ -16,6 +16,7 @@ import (
 	"github.com/google/uuid"
 )
 
+// level is the log level.
 type level int64
 
 const (
@@ -25,9 +26,12 @@ const (
 	Error
 )
 
+// contextKey is used to register the logger into context.
 type contextKey string
 
 var (
+	// required global. not exported.
+	// nolint
 	contextKeyRequest     = contextKey("request")
 	ErrNoRequest          = errors.New("no request")
 	ErrInvalidJSONContext = errors.New("invalid JSON context")
@@ -49,7 +53,7 @@ func (s level) String() string {
 }
 
 type Logger struct {
-	entries   []LogEntry
+	entries   []*Entry
 	env       string
 	request   *http.Request
 	startTime time.Time
@@ -58,15 +62,15 @@ type Logger struct {
 	service   string
 }
 
-type LoggerConfig struct {
+type Config struct {
 	Writer  io.Writer
 	Env     string
 	Service string
 }
 
-type LogEntry struct {
+type Entry struct {
 	Args            string `json:"args"`
-	CauserId        string `json:"causer_id"`
+	CauserID        string `json:"causer_id"`
 	CauserType      string `json:"causer_type"`
 	ContextAsString string `json:"context_as_string"`
 	DataId          string `json:"data_id"`
@@ -89,41 +93,57 @@ type LogEntry struct {
 	Type            string `json:"type"`
 }
 
-func (l *Logger) Debug(msg string, context string) error {
-	return l.Log(Debug, msg, context)
+func (l *Logger) Debug(msg string) *Entry {
+	return l.Log(Debug, msg)
 }
 
-func (l *Logger) Info(msg string, context string) error {
-	return l.Log(Info, msg, context)
+func (l *Logger) Info(msg string) *Entry {
+	return l.Log(Info, msg)
 }
 
-func (l *Logger) Warn(msg string, context string) error {
-	return l.Log(Warn, msg, context)
+func (l *Logger) Warn(msg string) *Entry {
+	return l.Log(Warn, msg)
 }
 
-func (l *Logger) Error(msg string, context string) error {
-	return l.Log(Error, msg, context)
+func (l *Logger) Error(msg string) *Entry {
+	return l.Log(Error, msg)
 }
 
-func (l *Logger) Log(lvl level, msg string, context string) error {
-	if context == "" {
-		context = "{}"
-	}
-
-	if !isJSON(context) {
-		context = "{}"
-	}
-
-	entry := l.buildEntry(lvl, msg, context)
+func (l *Logger) Log(lvl level, msg string) *Entry {
+	entry := l.buildEntry(lvl, msg)
 	l.entries = append(l.entries, entry)
 
-	return nil
+	return entry
 }
 
-func (l *Logger) buildEntry(lvl level, msg string, context string) LogEntry {
+func (e *Entry) WithContext(context string) *Entry {
+	if context == "" || !isJSON(context) {
+		context = "{}"
+	}
+
+	e.ContextAsString = context
+
+	return e
+}
+
+func (l *Logger) WithRequest(request *http.Request) *Logger {
+	if request == nil {
+		return l
+	}
+
+	l.request = request
+
+	if request.Header.Get("x-trace-id") != "" {
+		l.traceID = request.Header.Get("x-trace-id")
+	}
+
+	return l
+}
+
+func (l *Logger) buildEntry(lvl level, msg string) *Entry {
 	startTime := l.startTime.Format(time.RFC3339)
 	now := time.Now().Format(time.RFC3339)
-	delta := time.Now().Sub(l.startTime)
+	delta := time.Since(l.startTime)
 
 	remoteAddress := ""
 	requestMethod := ""
@@ -137,29 +157,28 @@ func (l *Logger) buildEntry(lvl level, msg string, context string) LogEntry {
 		requestURL = l.request.Host + l.request.URL.Path
 	}
 
-	return LogEntry{
-		Args:            strings.Join(os.Args, " "),
-		ContextAsString: context,
-		Datetime:        now,
-		Delta:           int(delta.Milliseconds()),
-		Env:             l.env,
-		Level:           lvl.String(),
-		Message:         msg,
-		ProcessContext:  "request",
-		ProcessStart:    startTime,
-		RemoteAddress:   remoteAddress,
-		RequestMethod:   requestMethod,
-		RequestQuery:    requestQuery,
-		RequestURL:      requestURL,
-		Service:         l.service,
-		TraceID:         l.traceID,
-		Type:            "general",
+	return &Entry{
+		Args:           strings.Join(os.Args, " "),
+		Datetime:       now,
+		Delta:          int(delta.Milliseconds()),
+		Env:            l.env,
+		Level:          lvl.String(),
+		Message:        msg,
+		ProcessContext: "request",
+		ProcessStart:   startTime,
+		RemoteAddress:  remoteAddress,
+		RequestMethod:  requestMethod,
+		RequestQuery:   requestQuery,
+		RequestURL:     requestURL,
+		Service:        l.service,
+		TraceID:        l.traceID,
+		Type:           "general",
 	}
 }
 
 // DecorateEntries is used to modify existing entries.
 // It should be called after all log entries are created because it does not apply to future entries.
-func (l *Logger) DecorateEntries(decorators ...func(LogEntry) LogEntry) {
+func (l *Logger) DecorateEntries(decorators ...func(*Entry) *Entry) {
 	entries := l.entries
 	for i := range l.entries {
 		for _, decorator := range decorators {
@@ -171,6 +190,7 @@ func (l *Logger) DecorateEntries(decorators ...func(LogEntry) LogEntry) {
 }
 
 // Flush writes all buffered log entries.
+// The buffer is then flushed.
 func (l *Logger) Flush() {
 	if l.writer == nil {
 		return
@@ -182,7 +202,7 @@ func (l *Logger) Flush() {
 	}
 
 	fmt.Fprintln(l.writer, string(data))
-	l.entries = []LogEntry{}
+	l.entries = []*Entry{}
 }
 
 func isJSON(str string) bool {
@@ -190,16 +210,12 @@ func isJSON(str string) bool {
 	return json.Unmarshal([]byte(str), &js) == nil
 }
 
-func NewLogger(cfg LoggerConfig, request *http.Request) *Logger {
+func NewLogger(cfg Config) *Logger {
 	traceID := uuid.New().String()
-	if request != nil && request.Header.Get("x-trace-id") != "" {
-		traceID = request.Header.Get("x-trace-id")
-	}
 
 	return &Logger{
-		entries:   []LogEntry{},
+		entries:   []*Entry{},
 		env:       cfg.Env,
-		request:   request,
 		service:   cfg.Service,
 		startTime: time.Now(),
 		traceID:   traceID,
@@ -207,10 +223,10 @@ func NewLogger(cfg LoggerConfig, request *http.Request) *Logger {
 	}
 }
 
-func Middleware(cfg LoggerConfig) func(http.Handler) http.Handler {
+func Middleware(cfg Config) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			logger := NewLogger(cfg, r)
+			logger := NewLogger(cfg).WithRequest(r)
 			defer logger.Flush()
 
 			ctx := context.WithValue(r.Context(), contextKeyRequest, logger)
@@ -219,7 +235,7 @@ func Middleware(cfg LoggerConfig) func(http.Handler) http.Handler {
 			wrappedResponseWriter := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
 
 			next.ServeHTTP(wrappedResponseWriter, r.WithContext(ctx))
-			logger.DecorateEntries(func(entry LogEntry) LogEntry {
+			logger.DecorateEntries(func(entry *Entry) *Entry {
 				entry.StatusCode = wrappedResponseWriter.Status()
 				return entry
 			})
@@ -234,4 +250,19 @@ func FromContext(ctx context.Context) (*Logger, error) {
 	}
 
 	return logger, nil
+}
+
+func temp() {
+	// create a config
+	cfg := Config{
+		Writer:  os.Stdout,           // io.Writer
+		Env:     "production",        // should probably be sourced from the environment
+		Service: "some-humi-service", // name of your service
+	}
+
+	logger := NewLogger(cfg) // create your logger instance
+	defer logger.Flush()     // defer flushing
+
+	logger.Info("We are logging!")
+	logger.Info("We are logging with context!").WithContext(`{"message": "Yay!"`)
 }
