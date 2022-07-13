@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -53,7 +52,7 @@ func (s level) String() string {
 }
 
 type Logger struct {
-	entries   []*Entry
+	Entries   []*Entry
 	env       string
 	request   *http.Request
 	startTime time.Time
@@ -111,13 +110,13 @@ func (l *Logger) Error(msg string) *Entry {
 
 func (l *Logger) Log(lvl level, msg string) *Entry {
 	entry := l.buildEntry(lvl, msg)
-	l.entries = append(l.entries, entry)
+	l.Entries = append(l.Entries, entry)
 
 	return entry
 }
 
 func (e *Entry) WithContext(context string) *Entry {
-	if context == "" || !isJSON(context) {
+	if !isJSON(context) {
 		context = "{}"
 	}
 
@@ -179,30 +178,32 @@ func (l *Logger) buildEntry(lvl level, msg string) *Entry {
 // DecorateEntries is used to modify existing entries.
 // It should be called after all log entries are created because it does not apply to future entries.
 func (l *Logger) DecorateEntries(decorators ...func(*Entry) *Entry) {
-	entries := l.entries
-	for i := range l.entries {
+	entries := l.Entries
+	for i := range l.Entries {
 		for _, decorator := range decorators {
 			entries[i] = decorator(entries[i])
 		}
 	}
 
-	l.entries = entries
+	l.Entries = entries
 }
 
 // Flush writes all buffered log entries.
 // The buffer is then flushed.
 func (l *Logger) Flush() {
 	if l.writer == nil {
+		l.Entries = []*Entry{}
 		return
 	}
 
-	data, err := json.Marshal(l.entries)
-	if err != nil {
-		log.Println("json failed", err)
+	for _, e := range l.Entries {
+		data, err := json.Marshal(e)
+		if err == nil {
+			fmt.Fprintln(l.writer, string(data))
+		}
 	}
 
-	fmt.Fprintln(l.writer, string(data))
-	l.entries = []*Entry{}
+	l.Entries = []*Entry{}
 }
 
 func isJSON(str string) bool {
@@ -214,7 +215,7 @@ func NewLogger(cfg Config) *Logger {
 	traceID := uuid.New().String()
 
 	return &Logger{
-		entries:   []*Entry{},
+		Entries:   []*Entry{},
 		env:       cfg.Env,
 		service:   cfg.Service,
 		startTime: time.Now(),
