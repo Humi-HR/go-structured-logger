@@ -51,6 +51,9 @@ func (s level) String() string {
 	return "unknown"
 }
 
+// Logger is main entity in this package.
+// Logger handles writing of logs.
+// In an HTTP context, a new logger is created per request.
 type Logger struct {
 	Entries   []*Entry
 	env       string
@@ -61,49 +64,34 @@ type Logger struct {
 	service   string
 }
 
+// Config is used to configure the logger.
+// All log entries for the logger will use this configuration.
 type Config struct {
 	Writer  io.Writer
 	Env     string
 	Service string
 }
 
-type Entry struct {
-	Args            string `json:"args"`
-	CauserID        string `json:"causer_id"`
-	CauserType      string `json:"causer_type"`
-	ContextAsString string `json:"context_as_string"`
-	DataId          string `json:"data_id"`
-	DataType        string `json:"data_type"`
-	Datetime        string `json:"datetime"`
-	Delta           int    `json:"delta"`
-	Env             string `json:"env"`
-	Impersonator    string `json:"impersonator"`
-	Level           string `json:"level"`
-	Message         string `json:"message"`
-	ProcessContext  string `json:"process_context"`
-	ProcessStart    string `json:"process_start"`
-	RemoteAddress   string `json:"remote_address"`
-	RequestMethod   string `json:"request_method"`
-	RequestQuery    string `json:"request_query"`
-	RequestURL      string `json:"request_url"`
-	Service         string `json:"service"`
-	StatusCode      int    `json:"status_code"`
-	TraceID         string `json:"trace_id"`
-	Type            string `json:"type"`
-}
-
+// Debug messages are used to debug the application.
+// They will not appear in production.
 func (l *Logger) Debug(msg string) *Entry {
 	return l.Log(Debug, msg)
 }
 
+// Info messages are standard log messages that give information about
+// what is happening in the application.
 func (l *Logger) Info(msg string) *Entry {
 	return l.Log(Info, msg)
 }
 
+// Warn messages are used to warn that something is happening that we'd rather
+// not happen. It's not an error, but it's a cause for some concern.
+// Ex: a deprecated method is used.
 func (l *Logger) Warn(msg string) *Entry {
 	return l.Log(Warn, msg)
 }
 
+// Error messages tell us that something went wrong.
 func (l *Logger) Error(msg string) *Entry {
 	return l.Log(Error, msg)
 }
@@ -115,30 +103,19 @@ func (l *Logger) Log(lvl level, msg string) *Entry {
 	return entry
 }
 
-func (e *Entry) WithContext(context string) *Entry {
-	if !isJSON(context) {
-		context = "{}"
-	}
-
-	e.ContextAsString = context
-
-	return e
-}
-
+// WithRequest adds a request to the logger.
+// It also sets the trace ID if one exists.
 func (l *Logger) WithRequest(request *http.Request) *Logger {
-	if request == nil {
-		return l
-	}
-
 	l.request = request
 
-	if request.Header.Get("x-trace-id") != "" {
+	if request != nil && request.Header.Get("x-trace-id") != "" {
 		l.traceID = request.Header.Get("x-trace-id")
 	}
 
 	return l
 }
 
+// buildEntry creates an Entry with all possible values.
 func (l *Logger) buildEntry(lvl level, msg string) *Entry {
 	startTime := l.startTime.Format(time.RFC3339)
 	now := time.Now().Format(time.RFC3339)
@@ -211,6 +188,8 @@ func isJSON(str string) bool {
 	return json.Unmarshal([]byte(str), &js) == nil
 }
 
+// NewLogger creates a new logger for use in an application.
+// If you are logging in and HTTP context, use Middleware instead.
 func NewLogger(cfg Config) *Logger {
 	traceID := uuid.New().String()
 
@@ -224,6 +203,8 @@ func NewLogger(cfg Config) *Logger {
 	}
 }
 
+// Middleware creates a middleware for use in an HTTP context.
+// Each request will get its own logger.
 func Middleware(cfg Config) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -244,6 +225,8 @@ func Middleware(cfg Config) func(http.Handler) http.Handler {
 	}
 }
 
+// FromContext retrieves a logger from a context object.
+// This is how we use the logger in our HTTP handlers.
 func FromContext(ctx context.Context) (*Logger, error) {
 	logger, ok := ctx.Value(contextKeyRequest).(*Logger)
 	if !ok {
