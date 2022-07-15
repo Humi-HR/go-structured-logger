@@ -1,8 +1,8 @@
-# Humi PHP Structured Logger
+# Humi Go Structured Logger
 
 ## What
 
-A structured logger for use in our PHP projects.
+A structured logger for use in our Go projects.
 
 <figure>
     <img width="300" src="logs.jpg"

@@ -11,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/go-chi/chi/v5/middleware"
 	"github.com/google/uuid"
 )
 
@@ -215,11 +214,11 @@ func Middleware(cfg Config) func(http.Handler) http.Handler {
 			ctx := context.WithValue(r.Context(), contextKeyRequest, logger)
 
 			// wrap the response writer so we can read its values after the request completes
-			wrappedResponseWriter := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
+			wrw := wrappedResponseWriter{ResponseWriter: w}
 
-			next.ServeHTTP(wrappedResponseWriter, r.WithContext(ctx))
+			next.ServeHTTP(&wrw, r.WithContext(ctx))
 			logger.DecorateEntries(func(entry *Entry) *Entry {
-				entry.StatusCode = wrappedResponseWriter.Status()
+				entry.StatusCode = wrw.Status()
 				return entry
 			})
 		})
@@ -235,4 +234,32 @@ func FromContext(ctx context.Context) (*Logger, error) {
 	}
 
 	return logger, nil
+}
+
+// wrappedResponseWriter allows us to both write a response
+// but also record that response.
+type wrappedResponseWriter struct {
+	http.ResponseWriter
+	code        int
+	wroteHeader bool
+}
+
+func (w *wrappedResponseWriter) Status() int {
+	return w.code
+}
+
+func (w *wrappedResponseWriter) WriteHeader(code int) {
+	if !w.wroteHeader {
+		w.code = code
+		w.wroteHeader = true
+		w.ResponseWriter.WriteHeader(code)
+	}
+}
+
+func (w *wrappedResponseWriter) Write(buf []byte) (int, error) {
+	if !w.wroteHeader {
+		w.WriteHeader(http.StatusOK)
+	}
+
+	return w.ResponseWriter.Write(buf)
 }
