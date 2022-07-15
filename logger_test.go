@@ -156,6 +156,7 @@ func Test_isJSON(t *testing.T) {
 	}
 }
 
+// TestMiddleware is a longer test because we want to ensure it behaves correctly across multiple requests.
 func TestMiddleware(t *testing.T) {
 	t.Parallel()
 	is := is.New(t)
@@ -181,6 +182,8 @@ func TestMiddleware(t *testing.T) {
 	req.Header.Add("x-trace-id", "my-trace")
 
 	middleware(handler).ServeHTTP(resp, req)
+
+	is.Equal(http.StatusOK, resp.Result().StatusCode)
 
 	entries := []Entry{}
 
@@ -217,10 +220,13 @@ func TestMiddleware(t *testing.T) {
 
 	// ensure middleware gives a new logger to next request
 
+	resp = httptest.NewRecorder()
 	req = httptest.NewRequest(http.MethodGet, "https://my.app/some-other-path", nil)
 	req.Header.Add("x-trace-id", "my-new-trace")
 
 	middleware(handler).ServeHTTP(resp, req)
+
+	is.Equal(http.StatusOK, resp.Result().StatusCode)
 
 	entries = []Entry{}
 
@@ -251,4 +257,21 @@ func TestMiddleware(t *testing.T) {
 	is.Equal(`{"warning": "oh no"}`, secondLog.ContextAsString)
 	is.Equal("my-new-trace", secondLog.TraceID)
 	is.Equal("my.app/some-other-path", secondLog.RequestURL)
+
+	// clear buffer
+	writer.Reset()
+
+	// ensure middleware gives the correct error response codes
+
+	resp = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "https://my.app/some-other-path", nil)
+	req.Header.Add("x-trace-id", "my-new-trace")
+
+	notFoundHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	})
+
+	middleware(notFoundHandler).ServeHTTP(resp, req)
+
+	is.Equal(http.StatusNotFound, resp.Result().StatusCode)
 }
