@@ -156,6 +156,7 @@ func (l *Logger) buildEntry(lvl level, msg string) *Entry {
 // It should be called after all log entries are created because it does not apply to future entries.
 func (l *Logger) DecorateEntries(decorators ...func(*Entry) *Entry) {
 	entries := l.Entries
+
 	for i := range l.Entries {
 		for _, decorator := range decorators {
 			entries[i] = decorator(entries[i])

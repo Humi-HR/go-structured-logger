@@ -41,8 +41,8 @@ cfg := Config{
 lgr := NewLogger(cfg) // create your logger instance
 defer lgr.Flush()     // defer flushing
 
-lgr.Info("We are logging!")                                                // regular log
-lgr.Info("We are logging with context!").WithContext(`{"message": "Yay!"}`) // log with context
+lgr.Info("We are logging!")                                                 // regular log
+lgr.Info("We are logging with context!").WithContext(`{"message": "Yay!"}`) // log with json context
 ```
 
 ### Request Middleware
